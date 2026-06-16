@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Атомдық Орбиталдар 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+:root { --clr: #00e5ff; }
+
+body {
+  background: #030810;
+  font-family: 'Space Mono','Courier New',monospace;
+  color: #c8d8e8; overflow:hidden; height:100vh; width:100vw; user-select:none;
+}
+#cvs { position:fixed; inset:0; }
+
+#ghost {
+  position:fixed; left:50%; bottom:-0.04em; transform:translateX(-50%);
+  font-size:clamp(60px,20vw,260px); font-weight:700; letter-spacing:-.07em; line-height:1;
+  white-space:nowrap; color:var(--clr); opacity:.042; pointer-events:none; transition:color .7s;
+}
+
+#brand { position:fixed; top:18px; left:20px; z-index:20; }
+#brand h2 { font-size:11px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; color:rgba(160,200,240,.5); }
+#brand p  { font-size:8px; letter-spacing:.1em; color:rgba(120,160,200,.25); margin-top:3px; }
+
+#credit {
+  position:fixed; top:10px; left:50%; transform:translateX(-50%);
+  font-size:8px; letter-spacing:.18em; text-transform:uppercase;
+  color:rgba(0,229,255,.22); z-index:30; white-space:nowrap;
+  font-family:'Space Mono','Courier New',monospace;
+  pointer-events:none;
+}
+
+/* zoom buttons */
+#zbx { position:fixed; top:18px; right:20px; z-index:25; display:flex; flex-direction:column; gap:5px; }
+.zb {
+  width:36px; height:36px; border-radius:9px;
+  background:rgba(3,8,22,.88); border:1px solid rgba(100,160,220,.18);
+  color:rgba(160,200,240,.7); font-size:20px; font-weight:700;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+  font-family:inherit; transition:background .15s;
+}
+.zb:active { background:rgba(0,200,255,.15); }
+
+/* ── PANEL ── */
+#panel {
+  position:fixed; right:20px; top:50%; transform:translateY(-50%);
+  width:188px;
+  background:rgba(3,8,22,.92); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(100,160,220,.11); border-radius:14px;
+  padding:14px 13px; display:flex; flex-direction:column; gap:10px; z-index:20;
+  max-height:calc(100vh - 40px); overflow-y:auto;
+}
+#ph { display:none; }
+
+/* shared */
+.slbl { font-size:8px; letter-spacing:.22em; text-transform:uppercase; color:rgba(130,170,210,.38); }
+.tabs { display:flex; gap:3px; background:rgba(0,0,0,.35); border-radius:8px; padding:3px; }
+.tab  { flex:1; border:none; background:transparent; color:rgba(150,190,230,.38);
+  font-family:inherit; font-size:13px; font-weight:700; padding:5px 2px; border-radius:6px; cursor:pointer; transition:all .22s; }
+.tab.active { background:var(--clr); color:#04080f; }
+.tab:hover:not(.active) { color:rgba(150,190,230,.72); }
+.ogrid { display:flex; flex-wrap:wrap; gap:4px; }
+.ob { flex:1 1 calc(50% - 2px); border:1px solid rgba(100,160,220,.13); background:rgba(0,0,0,.18);
+  color:rgba(150,190,230,.48); font-family:inherit; font-size:9px;
+  padding:6px 2px; border-radius:7px; cursor:pointer; transition:all .18s; text-align:center; }
+.ob.active { border-color:var(--clr); background:rgba(0,200,255,.06); color:var(--clr); }
+.ob:hover:not(.active) { border-color:rgba(100,160,220,.32); color:rgba(150,190,230,.82); }
+.sep { height:1px; background:rgba(100,160,220,.09); flex-shrink:0; }
+.qns { display:flex; flex-direction:column; gap:5px; }
+.qn  { display:flex; justify-content:space-between; align-items:center; font-size:9px; color:rgba(130,170,210,.42); }
+.qval{ color:var(--clr); font-weight:700; font-size:11px; }
+.leg { display:flex; gap:8px; flex-wrap:wrap; }
+.li  { display:flex; gap:4px; align-items:center; font-size:8px; color:rgba(130,170,210,.4); }
+.ld  { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.desc{ font-size:7.5px; line-height:1.55; color:rgba(120,160,200,.3); font-style:italic; }
+.ctrls { display:flex; flex-direction:column; gap:7px; }
+.crow { display:flex; justify-content:space-between; align-items:center;
+  font-size:8px; color:rgba(130,170,210,.4); letter-spacing:.08em; text-transform:uppercase; }
+.tog { width:30px; height:16px; border-radius:8px;
+  background:rgba(0,0,0,.4); border:1px solid rgba(100,160,220,.18);
+  cursor:pointer; position:relative; transition:background .2s; flex-shrink:0; }
+.tog.on { background:var(--clr); border-color:transparent; }
+.tog::after { content:''; position:absolute; width:10px; height:10px; border-radius:50%;
+  background:rgba(255,255,255,.92); top:2px; left:2px; transition:left .2s; }
+.tog.on::after { left:16px; }
+
+/* ══════════════════════════════════
+   ЭЛЕКТРОННАЯ ЯЧЕЙКА
+   ══════════════════════════════════ */
+
+/* Bohr model canvas */
+#bohr-wrap { display:flex; flex-direction:column; align-items:center; gap:4px; }
+#bohr-c { display:block; }
+#bohr-conf {
+  font-size:9px; color:var(--clr); letter-spacing:.05em;
+  text-shadow:0 0 8px var(--clr); text-align:center;
+}
+
+/* electron configuration boxes */
+#ebox { display:flex; flex-direction:column; gap:4px; }
+.erow { display:flex; align-items:center; gap:3px; }
+.erow-lbl { font-size:6.5px; color:rgba(100,140,180,.35); width:20px; text-align:right; flex-shrink:0; }
+.eboxes { display:flex; gap:2px; flex-wrap:nowrap; }
+.ew { display:flex; flex-direction:column; align-items:center; gap:1px; }
+.ec {
+  width:19px; height:22px;
+  border:1px solid rgba(80,130,180,.14); border-radius:3px;
+  background:rgba(0,0,0,.22);
+  display:flex; align-items:center; justify-content:center;
+  transition:border-color .3s, background .3s, box-shadow .3s;
+  overflow:hidden; flex-shrink:0;
+}
+.eup { font-size:8px; line-height:1; }
+.ec-filled .eup  { color:rgba(120,170,210,.45); font-size:7px; }
+.ec-half .eup    { color:rgba(140,180,220,.55); }
+.ec-active {
+  border-color:var(--clr) !important;
+  background:rgba(0,0,0,.3);
+  box-shadow:0 0 8px rgba(0,200,255,.22), inset 0 0 5px rgba(0,200,255,.07);
+}
+.ec-active .eup  { color:var(--clr); text-shadow:0 0 6px var(--clr); font-size:11px; }
+.ec-empty        { opacity:.35; }
+.el { font-size:5px; color:rgba(100,140,180,.28); text-align:center; width:19px; overflow:hidden; }
+
+/* subshell gap spacer */
+.esep { width:4px; flex-shrink:0; }
+
+/* ── LOADING ── */
+#load {
+  position:fixed; inset:0; background:#030810;
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column; gap:16px; z-index:100; transition:opacity .6s;
+}
+#load.out { opacity:0; pointer-events:none; }
+#lg { font-size:clamp(56px,14vw,160px); font-weight:700; letter-spacing:-.06em;
+  color:#00e5ff; opacity:.08; position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+  white-space:nowrap; pointer-events:none; animation:pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:.04}50%{opacity:.12} }
+.ltxt { font-size:9.5px; letter-spacing:.22em; color:rgba(140,180,220,.48); text-transform:uppercase; position:relative; }
+.lbar { width:170px; height:1px; background:rgba(100,160,220,.1); }
+.lfill{ height:100%; background:var(--clr); width:0; transition:width .08s linear; }
+.lcnt { font-size:8.5px; color:rgba(100,140,180,.38); letter-spacing:.14em; }
+
+#hint { position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+  font-size:8px; letter-spacing:.12em; color:rgba(100,140,180,.18);
+  text-transform:uppercase; white-space:nowrap; z-index:10; }
+
+/* ══ MOBILE ≤ 640px ══ */
+@media (max-width:640px) {
+  #hint { display:none; }
+  #ghost { bottom:58px; }
+  #panel {
+    position:fixed; right:0; left:0; bottom:0; top:auto; transform:none; width:100%;
+    border-radius:16px 16px 0 0; border-bottom:none;
+    padding:0 14px 18px; max-height:58px;
+    overflow:hidden; transition:max-height .35s cubic-bezier(.4,0,.2,1);
+    gap:10px;
+  }
+  #panel.open { max-height:600px; overflow-y:auto; }
+  #ph { display:flex; flex-direction:column; align-items:center; gap:5px; padding:10px 0 4px; cursor:pointer; flex-shrink:0; }
+  .ph-bar { width:36px; height:3px; background:rgba(160,200,240,.28); border-radius:2px; }
+  .ph-row { display:flex; justify-content:space-between; width:100%; font-size:9.5px; color:rgba(160,200,240,.45); }
+  #ph-arr { transition:transform .3s; }
+  #panel.open #ph-arr { transform:rotate(180deg); }
+  .ob { padding:9px 2px; }
+  #bohr-c { width:70px; height:70px; }
+}
+</style>
+</head>
+<body>
+
+<div id="load">
+  <div id="lg">1s</div>
+  <div class="ltxt">Орбиталдарды генерациялау</div>
+  <div class="lbar"><div class="lfill" id="lf"></div></div>
+  <div class="lcnt" id="lc">0 / 11</div>
+</div>
+
+<div id="credit">Made by Dias Sempai</div>
+
+<div id="cvs"></div>
+<div id="ghost">1s</div>
+
+<div id="brand">
+  <h2>Атомдық Орбиталдар</h2>
+  <p>Кванттық-механикалық 3D симуляция</p>
+</div>
+
+<div id="zbx">
+  <button class="zb" id="zin">+</button>
+  <button class="zb" id="zout">−</button>
+</div>
+
+<div id="panel">
+  <!-- mobile handle -->
+  <div id="ph" onclick="togglePanel()">
+    <div class="ph-bar"></div>
+    <div class="ph-row"><span id="ph-key">1s</span><span id="ph-arr">▲</span></div>
+  </div>
+
+  <div class="slbl">Орбиталь түрі</div>
+  <div class="tabs">
+    <button class="tab active" data-t="s">s</button>
+    <button class="tab"        data-t="p">p</button>
+    <button class="tab"        data-t="d">d</button>
+  </div>
+  <div class="ogrid" id="og"></div>
+
+  <div class="sep"></div>
+
+  <div class="qns">
+    <div class="qn"><span>n (негізгі)</span>       <span class="qval" id="qn">1</span></div>
+    <div class="qn"><span>ℓ (орбиталдық)</span>   <span class="qval" id="ql">0</span></div>
+    <div class="qn"><span>m (магниттік)</span>    <span class="qval" id="qm">0</span></div>
+  </div>
+  <div class="leg">
+    <div class="li"><div class="ld" id="dp" style="background:#00e5ff"></div><span>ψ &gt; 0</span></div>
+    <div class="li" id="nl"><div class="ld" id="dn" style="background:#ff4488"></div><span>ψ &lt; 0</span></div>
+  </div>
+  <div class="desc" id="dsc">Сфералық симметриялы</div>
+
+  <div class="sep"></div>
+
+  <!-- ── ЭЛЕКТРОН ҰЯСЫ ── -->
+  <div class="slbl">Электрон ұясы</div>
+
+  <!-- Bohr model -->
+  <div id="bohr-wrap">
+    <canvas id="bohr-c" width="80" height="80"></canvas>
+    <div id="bohr-conf">1s¹</div>
+  </div>
+
+  <!-- Electron box diagram -->
+  <div id="ebox"></div>
+
+  <div class="sep"></div>
+
+  <div class="ctrls">
+    <div class="crow"><span>Автоайналым</span>       <div class="tog on" id="tr"></div></div>
+    <div class="crow"><span>Түйін жазықтықтары</span><div class="tog"    id="tn"></div></div>
+  </div>
+</div>
+
+<div id="hint">сүйреңіз · дөңгелек немесе +/− масштаб үшін</div>
+
+<script>
+/* ════════════════════════════════════════
+   ORBITAL DATA
+   ════════════════════════════════════════ */
+const POS_CLR = { s:'#00e5ff', p:'#a855f7', d:'#f59e0b' };
+const NEG_RGB = { s:[1.,.27,.53], p:[.96,.28,.72], d:[.08,.72,.65] };
+
+const ORBS = {
+  '1s' :{n:1,l:0,m:0,  type:'s',range:9,
+    conf:'1s¹', desc:'Сфералық симметриялы. Түйін беттері жоқ.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=Math.exp(-r); return{p:v*v,s:1}; }},
+  '2s' :{n:2,l:0,m:0,  type:'s',range:20,
+    conf:'1s²2s¹', desc:'Екі концентрлік сфера. r = 2a₀ түйін сферасы.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z)/2,v=(2-r)*Math.exp(-r/2); return{p:v*v,s:Math.sign(v)||1}; }},
+  '3s' :{n:3,l:0,m:0,  type:'s',range:30,
+    conf:'1s²2s²2p⁶3s¹', desc:'Үш концентрлік сфера. Екі түйін сферасы.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z)/3,v=(27-18*r+2*r*r)*Math.exp(-r/3); return{p:v*v,s:Math.sign(v)||1}; }},
+  '2pz':{n:2,l:1,m:-1, type:'p',range:16,
+    conf:'1s²2s²2p¹', desc:'Z осі бойынша екі бөлік. XY түйін жазықтығы.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=z*Math.exp(-r/4); return{p:v*v,s:Math.sign(z)||1}; }},
+  '2px':{n:2,l:1,m:0,  type:'p',range:16,
+    conf:'1s²2s²2p²', desc:'X осі бойынша екі бөлік. YZ түйін жазықтығы.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=x*Math.exp(-r/4); return{p:v*v,s:Math.sign(x)||1}; }},
+  '2py':{n:2,l:1,m:1,  type:'p',range:16,
+    conf:'1s²2s²2p³', desc:'Y осі бойынша екі бөлік. XZ түйін жазықтығы.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=y*Math.exp(-r/4); return{p:v*v,s:Math.sign(y)||1}; }},
+  '3dz²'  :{n:3,l:2,m:-2, type:'d',range:22,
+    conf:'[Ar]3d¹', desc:'Z бойынша екі бөлік және XY жазықтығында тороид сақина. Конустық түйіндер.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=(2*z*z-x*x-y*y)*Math.exp(-r/6); return{p:v*v,s:Math.sign(v)||1}; }},
+  '3dxz'  :{n:3,l:2,m:-1, type:'d',range:20,
+    conf:'[Ar]3d²', desc:'XZ жазықтығында төрт бөлік. YZ және XY түйін жазықтықтары.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=x*z*Math.exp(-r/6); return{p:v*v,s:Math.sign(x*z)||1}; }},
+  '3dyz'  :{n:3,l:2,m:0,  type:'d',range:20,
+    conf:'[Ar]3d³', desc:'YZ жазықтығында төрт бөлік. XZ және XY түйін жазықтықтары.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=y*z*Math.exp(-r/6); return{p:v*v,s:Math.sign(y*z)||1}; }},
+  '3dxy'  :{n:3,l:2,m:1,  type:'d',range:20,
+    conf:'[Ar]3d⁴', desc:'X және Y осьтері арасында төрт бөлік. YZ және XZ түйін жазықтықтары.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=x*y*Math.exp(-r/6); return{p:v*v,s:Math.sign(x*y)||1}; }},
+  '3dx²-y²':{n:3,l:2,m:2, type:'d',range:20,
+    conf:'[Ar]3d⁵', desc:'X және Y осьтері бойынша төрт бөлік. x=y және x=−y түйін жазықтықтары.',
+    psi:(x,y,z)=>{ const r=Math.hypot(x,y,z),v=(x*x-y*y)*Math.exp(-r/6); return{p:v*v,s:Math.sign(x*x-y*y)||1}; }},
+};
+
+const TYPES = { s:['1s','2s','3s'], p:['2pz','2px','2py'], d:['3dz²','3dxz','3dyz','3dxy','3dx²-y²'] };
+const NODE_DIRS = {
+  '2pz':[[0,0,10]],'2px':[[10,0,0]],'2py':[[0,10,0]],
+  '3dxz':[[10,0,0],[0,0,10]],'3dyz':[[0,10,0],[0,0,10]],
+  '3dxy':[[10,0,0],[0,10,0]],'3dx²-y²':[[10,-10,0],[10,10,0]],
+};
+
+/* ── Electron box config ── */
+const E_ORDER = ['1s','2s','2pz','2px','2py','3s','3dz²','3dxz','3dyz','3dxy','3dx²-y²'];
+const DEGEN_GROUPS = [['2pz','2px','2py'],['3dz²','3dxz','3dyz','3dxy','3dx²-y²']];
+const ELBL = {
+  '1s':'1s','2s':'2s','3s':'3s',
+  '2pz':'pz','2px':'px','2py':'py',
+  '3dz²':'dz²','3dxz':'dxz','3dyz':'dyz','3dxy':'dxy','3dx²-y²':'x²y²'
+};
+const EROWS = [
+  { n:1, groups:[['1s']] },
+  { n:2, groups:[['2s'],['2pz','2px','2py']] },
+  { n:3, groups:[['3s'],['3dz²','3dxz','3dyz','3dxy','3dx²-y²']] },
+];
+
+function eState(k, activeKey) {
+  if (k === activeKey) return 'active';
+  const ki = E_ORDER.indexOf(k), ai = E_ORDER.indexOf(activeKey);
+  if (ki < ai) {
+    for (const g of DEGEN_GROUPS) if (g.includes(k) && g.includes(activeKey)) return 'half';
+    return 'filled';
+  }
+  return 'empty';
+}
+
+function updateEbox(key) {
+  const el = document.getElementById('ebox');
+  el.innerHTML = '';
+  EROWS.forEach(({ n, groups }) => {
+    const row = document.createElement('div'); row.className = 'erow';
+    const lbl = document.createElement('div'); lbl.className = 'erow-lbl'; lbl.textContent = 'n='+n;
+    row.appendChild(lbl);
+    const bxs = document.createElement('div'); bxs.className = 'eboxes';
+    groups.forEach((grp, gi) => {
+      if (gi > 0) { const sp = document.createElement('div'); sp.className='esep'; bxs.appendChild(sp); }
+      grp.forEach(k => {
+        const st = eState(k, key);
+        const ew = document.createElement('div'); ew.className = 'ew';
+        const ec = document.createElement('div'); ec.className = 'ec ec-'+st;
+        if (st==='filled') ec.innerHTML='<span class="eup">↑↓</span>';
+        else if (st==='half') ec.innerHTML='<span class="eup">↑</span>';
+        else if (st==='active') ec.innerHTML='<span class="eup">↑</span>';
+        const lel = document.createElement('div'); lel.className='el'; lel.textContent=ELBL[k];
+        ew.appendChild(ec); ew.appendChild(lel); bxs.appendChild(ew);
+      });
+    });
+    row.appendChild(bxs); el.appendChild(row);
+  });
+}
+
+/* ════════════════════════════════════════
+   THREE.JS
+   ════════════════════════════════════════ */
+const cvsEl = document.getElementById('cvs');
+const scene  = new THREE.Scene();
+const cam    = new THREE.PerspectiveCamera(48, innerWidth/innerHeight, .01, 1000);
+cam.position.z = innerWidth <= 640 ? 38 : 30;
+
+const rdr = new THREE.WebGLRenderer({antialias:true});
+rdr.setPixelRatio(Math.min(devicePixelRatio, 2));
+rdr.setSize(innerWidth, innerHeight);
+rdr.setClearColor(0x030810);
+cvsEl.appendChild(rdr.domElement);
+
+const grp = new THREE.Group(); scene.add(grp);
+
+/* stars */
+(()=>{
+  const g=new THREE.BufferGeometry(), a=new Float32Array(2600*3);
+  for(let i=0;i<a.length;i++) a[i]=(Math.random()-.5)*700;
+  g.setAttribute('position',new THREE.BufferAttribute(a,3));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x4a70a0,size:.3,transparent:true,opacity:.2})));
+})();
+
+/* axes */
+(()=>{
+  const mat=new THREE.LineBasicMaterial({color:0x142540,transparent:true,opacity:.65}), L=13;
+  [[-L,0,0,L,0,0],[0,-L,0,0,L,0],[0,0,-L,0,0,L]].forEach(([x1,y1,z1,x2,y2,z2])=>{
+    const g=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x1,y1,z1),new THREE.Vector3(x2,y2,z2)]);
+    grp.add(new THREE.Line(g,mat));
+  });
+})();
+
+/* axis labels */
+function mkLbl(t,c){
+  const cv=document.createElement('canvas'); cv.width=cv.height=72;
+  const cx=cv.getContext('2d'); cx.fillStyle=c; cx.font='bold 46px monospace';
+  cx.textAlign='center'; cx.textBaseline='middle'; cx.fillText(t,36,38);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,opacity:.38}));
+  sp.scale.set(1.8,1.8,1); return sp;
+}
+const LL=14.4;
+[['x',LL,0,0],['y',0,LL,0],['z',0,0,LL]].forEach(([t,x,y,z])=>{
+  const s=mkLbl(t,'#1e3d62'); s.position.set(x,y,z); grp.add(s);
+});
+
+/* nucleus glow */
+(()=>{
+  const cv=document.createElement('canvas'); cv.width=cv.height=128;
+  const cx=cv.getContext('2d');
+  const g=cx.createRadialGradient(64,64,0,64,64,64);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(.3,'rgba(180,220,255,.75)');
+  g.addColorStop(.65,'rgba(80,160,255,.2)'); g.addColorStop(1,'rgba(0,0,0,0)');
+  cx.fillStyle=g; cx.fillRect(0,0,128,128);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),
+    blending:THREE.AdditiveBlending,depthWrite:false,transparent:true,opacity:.85}));
+  sp.scale.set(2.2,2.2,1); grp.add(sp);
+})();
+
+/* soft-circle point texture */
+const circleTex=(()=>{
+  const cv=document.createElement('canvas'); cv.width=cv.height=32;
+  const cx=cv.getContext('2d');
+  const g=cx.createRadialGradient(16,16,0,16,16,16);
+  g.addColorStop(0,'rgba(255,255,255,1)'); g.addColorStop(.55,'rgba(255,255,255,.55)');
+  g.addColorStop(1,'rgba(255,255,255,0)');
+  cx.fillStyle=g; cx.fillRect(0,0,32,32);
+  return new THREE.CanvasTexture(cv);
+})();
+
+/* ════════════════════════════════════════
+   CLOUD GENERATION
+   ════════════════════════════════════════ */
+const PTS = 26000;
+function hexRGB(h){ const n=parseInt(h.slice(1),16); return[(n>>16&255)/255,(n>>8&255)/255,(n&255)/255]; }
+
+function genCloud(key){
+  const{psi,range,type}=ORBS[key];
+  const pc=hexRGB(POS_CLR[type]), nc=NEG_RGB[type];
+  let mx=0;
+  for(let i=0;i<3000;i++){
+    const x=(Math.random()-.5)*range*2,y=(Math.random()-.5)*range*2,z=(Math.random()-.5)*range*2;
+    const{p}=psi(x,y,z); if(p>mx) mx=p;
+  }
+  mx*=1.18;
+  const pos=[],clr=[];
+  let acc=0,att=0;
+  while(acc<PTS && att<PTS*180){
+    const x=(Math.random()-.5)*range*2,y=(Math.random()-.5)*range*2,z=(Math.random()-.5)*range*2;
+    const{p,s}=psi(x,y,z);
+    if(Math.random()<p/mx){ pos.push(x,y,z); const c=s>=0?pc:nc; clr.push(c[0],c[1],c[2]); acc++; }
+    att++;
+  }
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(pos),3));
+  geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(clr),3));
+  return new THREE.Points(geo,new THREE.PointsMaterial({
+    size:.25, map:circleTex, alphaTest:.01,
+    vertexColors:true, transparent:true, opacity:.72,
+    blending:THREE.AdditiveBlending, depthWrite:false,
+  }));
+}
+
+/* ════════════════════════════════════════
+   BOHR MODEL CANVAS
+   ════════════════════════════════════════ */
+let bohrN=1, bohrType='s', bohrAngle=0;
+
+function drawBohr() {
+  const canvas = document.getElementById('bohr-c');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const cx = W/2, cy = H/2;
+  ctx.clearRect(0, 0, W, H);
+
+  const radii = [W*.145, W*.265, W*.41];
+  const clrMap = { s:'#00e5ff', p:'#a855f7', d:'#f59e0b' };
+  const activeClr = clrMap[bohrType];
+
+  // shells
+  radii.forEach((r, i) => {
+    const active = (i+1) === bohrN;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+    ctx.strokeStyle = active ? activeClr : 'rgba(80,130,180,0.18)';
+    ctx.lineWidth = active ? 1.5 : 1;
+    ctx.stroke();
+    if (active) {
+      // shell glow
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.strokeStyle = activeClr+'33'; ctx.lineWidth = 5; ctx.stroke();
+    }
+  });
+
+  // nucleus
+  const ng = ctx.createRadialGradient(cx,cy,0,cx,cy,7);
+  ng.addColorStop(0,'rgba(255,255,255,1)'); ng.addColorStop(.5,'rgba(180,220,255,.7)'); ng.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(cx,cy,7,0,Math.PI*2); ctx.fillStyle=ng; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,3.5,0,Math.PI*2); ctx.fillStyle='white'; ctx.fill();
+
+  // electron on active shell
+  const r = radii[bohrN-1];
+  const speed = [.035, .022, .015][bohrN-1];
+  bohrAngle += speed;
+  const ex = cx + r * Math.cos(bohrAngle);
+  const ey = cy + r * Math.sin(bohrAngle);
+  // trail
+  for (let t=1; t<=6; t++) {
+    const ta = bohrAngle - t*speed*2;
+    const tx = cx + r*Math.cos(ta), ty = cy + r*Math.sin(ta);
+    ctx.beginPath(); ctx.arc(tx,ty,1.5*(1-t/7),0,Math.PI*2);
+    ctx.fillStyle = activeClr+Math.floor((1-t/7)*80).toString(16).padStart(2,'0');
+    ctx.fill();
+  }
+  // glow
+  const eg = ctx.createRadialGradient(ex,ey,0,ex,ey,7);
+  eg.addColorStop(0, activeClr+'cc'); eg.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.arc(ex,ey,7,0,Math.PI*2); ctx.fillStyle=eg; ctx.fill();
+  // dot
+  ctx.beginPath(); ctx.arc(ex,ey,3,0,Math.PI*2); ctx.fillStyle=activeClr; ctx.fill();
+
+  // n labels at right of each shell
+  const lblPos = [[cx+radii[0]+2, cy-2],[cx+radii[1]+2, cy-2],[cx+radii[2]+2, cy-2]];
+  lblPos.forEach(([lx,ly],i)=>{
+    ctx.font = '7px monospace';
+    ctx.fillStyle = (i+1)===bohrN ? activeClr+'cc' : 'rgba(80,130,180,0.3)';
+    ctx.fillText('n='+(i+1), lx, ly);
+  });
+}
+
+/* ════════════════════════════════════════
+   STATE & SWITCHING
+   ════════════════════════════════════════ */
+const cache={};
+let curKey='1s', cloud=null, nodGrp=null;
+let showNodes=false, autoRot=true;
+let drag=false, px=0, py=0, rx=.2, ry=0, autoY=0;
+let panelOpen=false, pinchDist=0, isPinch=false;
+
+function makeNodeGrp(key){
+  const g=new THREE.Group();
+  if(!showNodes||!NODE_DIRS[key]) return g;
+  const clr=POS_CLR[ORBS[key].type];
+  NODE_DIRS[key].forEach(d=>{
+    const geo=new THREE.PlaneGeometry(22,22);
+    const mat=new THREE.MeshBasicMaterial({color:new THREE.Color(clr),transparent:true,opacity:.05,side:THREE.DoubleSide,depthWrite:false});
+    const m=new THREE.Mesh(geo,mat); m.lookAt(new THREE.Vector3(d[0],d[1],d[2])); g.add(m);
+  }); return g;
+}
+
+function switchOrb(key){
+  curKey=key;
+  const orb=ORBS[key];
+  if(cloud){grp.remove(cloud);cloud=null;}
+  if(nodGrp){grp.remove(nodGrp);nodGrp=null;}
+  cloud=cache[key]; grp.add(cloud);
+  nodGrp=makeNodeGrp(key); grp.add(nodGrp);
+
+  // quantum numbers
+  document.getElementById('qn').textContent=orb.n;
+  document.getElementById('ql').textContent=orb.l;
+  document.getElementById('qm').textContent=orb.m;
+  document.getElementById('dsc').textContent=orb.desc;
+  document.getElementById('ghost').textContent=key;
+  document.getElementById('ph-key').textContent=key;
+
+  // phase legend
+  const pc=POS_CLR[orb.type], nc=orb.type==='s'?'#ff4488':orb.type==='p'?'#f472b6':'#14b8a6';
+  document.getElementById('dp').style.background=pc;
+  document.getElementById('dn').style.background=nc;
+  document.getElementById('nl').style.opacity=key==='1s'?'0.22':'1';
+
+  // electron cell
+  bohrN=orb.n; bohrType=orb.type;
+  document.getElementById('bohr-conf').textContent=orb.conf;
+  document.getElementById('bohr-conf').style.color=pc;
+  document.getElementById('bohr-conf').style.textShadow=`0 0 8px ${pc}`;
+  updateEbox(key);
+}
+
+function setType(t){
+  document.documentElement.style.setProperty('--clr',POS_CLR[t]);
+  document.getElementById('ghost').style.color=POS_CLR[t];
+  const og=document.getElementById('og'); og.innerHTML='';
+  const first=TYPES[t][0];
+  TYPES[t].forEach(k=>{
+    const b=document.createElement('button');
+    b.className='ob'+(k===first?' active':''); b.textContent=k;
+    b.onclick=()=>{ og.querySelectorAll('.ob').forEach(x=>x.classList.remove('active')); b.classList.add('active'); switchOrb(k); };
+    og.appendChild(b);
+  });
+  switchOrb(first);
+}
+
+function togglePanel(){
+  panelOpen=!panelOpen;
+  document.getElementById('panel').classList.toggle('open',panelOpen);
+}
+
+/* ════════════════════════════════════════
+   UI EVENTS
+   ════════════════════════════════════════ */
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); setType(b.dataset.t);
+}));
+document.getElementById('tr').addEventListener('click',function(){autoRot=!autoRot;this.classList.toggle('on',autoRot);});
+document.getElementById('tn').addEventListener('click',function(){
+  showNodes=!showNodes; this.classList.toggle('on',showNodes);
+  if(nodGrp)grp.remove(nodGrp); nodGrp=makeNodeGrp(curKey); grp.add(nodGrp);
+});
+document.getElementById('zin').addEventListener('click',()=>{ cam.position.z=Math.max(5,cam.position.z-4); });
+document.getElementById('zout').addEventListener('click',()=>{ cam.position.z=Math.min(85,cam.position.z+4); });
+
+/* mouse */
+rdr.domElement.addEventListener('mousedown',e=>{drag=true;px=e.clientX;py=e.clientY;});
+addEventListener('mouseup',()=>drag=false);
+addEventListener('mousemove',e=>{
+  if(!drag)return;
+  ry+=(e.clientX-px)*.007; rx+=(e.clientY-py)*.007;
+  rx=Math.max(-1.35,Math.min(1.35,rx)); px=e.clientX; py=e.clientY;
+});
+addEventListener('wheel',e=>{ cam.position.z=Math.max(5,Math.min(85,cam.position.z+e.deltaY*.04)); },{passive:true});
+
+/* touch */
+function td(e){ return Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY); }
+rdr.domElement.addEventListener('touchstart',e=>{
+  if(e.touches.length===2){isPinch=true;drag=false;pinchDist=td(e);}
+  else{isPinch=false;drag=true;px=e.touches[0].clientX;py=e.touches[0].clientY;}
+},{passive:true});
+addEventListener('touchend',e=>{ if(e.touches.length<2)isPinch=false; if(e.touches.length===0)drag=false; });
+addEventListener('touchmove',e=>{
+  if(isPinch&&e.touches.length===2){ const d=td(e); cam.position.z=Math.max(5,Math.min(85,cam.position.z-(d-pinchDist)*.12)); pinchDist=d; return; }
+  if(!drag||e.touches.length!==1)return;
+  ry+=(e.touches[0].clientX-px)*.007; rx+=(e.touches[0].clientY-py)*.007;
+  rx=Math.max(-1.35,Math.min(1.35,rx)); px=e.touches[0].clientX; py=e.touches[0].clientY;
+},{passive:true});
+document.getElementById('panel').addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});
+document.getElementById('panel').addEventListener('touchmove',e=>e.stopPropagation(),{passive:true});
+addEventListener('resize',()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); rdr.setSize(innerWidth,innerHeight); });
+
+/* ════════════════════════════════════════
+   RENDER LOOP
+   ════════════════════════════════════════ */
+function loop(){
+  requestAnimationFrame(loop);
+  if(autoRot&&!drag&&!isPinch) autoY+=.004;
+  grp.rotation.set(rx, ry+autoY, 0);
+  rdr.render(scene, cam);
+  drawBohr();
+}
+
+/* ════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════ */
+(async()=>{
+  const keys=Object.keys(ORBS);
+  const lf=document.getElementById('lf'), lc=document.getElementById('lc'), lg=document.getElementById('lg');
+  for(let i=0;i<keys.length;i++){
+    await new Promise(r=>setTimeout(r,0));
+    lg.textContent=keys[i];
+    cache[keys[i]]=genCloud(keys[i]);
+    lf.style.width=((i+1)/keys.length*100)+'%';
+    lc.textContent=`${i+1} / ${keys.length}`;
+  }
+  document.documentElement.style.setProperty('--clr','#00e5ff');
+  document.getElementById('ghost').style.color='#00e5ff';
+  setType('s');
+  const ld=document.getElementById('load'); ld.classList.add('out'); setTimeout(()=>ld.remove(),700);
+  loop();
+})();
+</script>
+</body>
+</html>
